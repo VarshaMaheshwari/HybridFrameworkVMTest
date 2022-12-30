@@ -11,7 +11,7 @@ import org.testng.annotations.BeforeClass;
 import java.io.File;
 
 
-@CucumberOptions(plugin = {"pretty:target/cucumber-reports/cucumber-pretty.txt", "html:target/cucumber-reports/raw-cucumber-html-report.html", "json:target/report.json", "json:target/cucumber-reports/CucumberTestReport.json", "com.vimalselvam.cucumber.ExtentCucumberFormatter:output/extentreport.html"}, features = {"./src/test/resources/features/"}, glue = {"stepDefinitions"}, tags =  "@MyFeature", publish = false)
+@CucumberOptions(plugin = {"pretty:target/cucumber-reports/cucumber-pretty.txt", "html:target/cucumber-reports/raw-cucumber-html-report.html", "json:target/report.json", "json:target/cucumber-reports/CucumberTestReport.json"}, features = {"./src/test/resources/features/"}, glue = {"stepDefinitions"}, tags =  "@MyFeature", publish = false)
 
 public class TestNGRunner extends AbstractTestNGCucumberTests {
 
