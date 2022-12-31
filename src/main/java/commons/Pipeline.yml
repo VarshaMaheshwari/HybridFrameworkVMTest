@@ -1,0 +1,78 @@
+trigger: none
+parameters:
+- name: cucumberOptions
+    displayName: CUCUMBER_OPTIONS
+    type: string
+    default: 'tag'
+    values:
+      - 'tag1'
+      - 'tag2'
+
+- name: env
+    displayName: ENV
+    type: string
+    default: 'dev'
+    values:
+      - dev
+
+variables:
+  - group: Tests-${{parameters.env}}
+
+name: $(Date:yyyyMMdd)$(Rev:.r)_prj_test_${{parameters.env}}_tag_${{parameters.cucumberOptions}}
+appendCommitMessageToRunName: false
+
+jobs:
+  - job: psh_integration_test_${{parameters.env}}_tag_${{parameters.cucumberOptions}}
+    pool:
+      vmImage: 'windows-2019'
+
+    steps:
+      - task: JavaToolInstaller@0
+        inputs:
+          versionSpec: '17'
+          jdkArchitectureOption: 'x64'
+          jdkSourceOption: 'PreInstalled'
+      - script: |
+          java -version
+        displayName: java version before
+      - task: CmdLine@2
+        displayName: Run az commands
+        inputs:
+          script: 'az version'
+      - task: KubectlInstaller@0
+        displayName: Kubectl installer
+        inputs:
+          kubectlVersion: latest
+      - task: CmdLine@2
+        displayName: Run kubectl command to verify installation
+        inputs:
+          script: 'kubectl --help'
+      - task: CmdLine@2
+        displayName: Azure authentication using service-principal
+        inputs:
+          script: 'az login --service-principal --username $(USER_ID) --password $(USER_PWD) --tenant $(USER_TENANT)'
+
+
+      - task: PublishCucumberReport@1
+          inputs:
+            jsonDir: '$(System.DefaultWorkingDirectory)/target/cucumber-reports'
+            outputPath: './target/cucumber-reports'
+            theme: 'bootstrap'
+            reportSuiteAsScenarios: true
+            name: 'psh-integration-test-${{parameters.env}}-${{parameters.cucumberOptions}}'
+            title: 'psh-integration-test-${{parameters.env}}-${{parameters.cucumberOptions}}'
+
+            - publish: $(System.DefaultWorkingDirectory)/target/cucumber-reports/cucumber.html
+              condition: succeededOrFailed()
+              artifact: psh_integration_test_${{parameters.env}}_tag_${{parameters.cucumberOptions}}
+
+            - task: PowerShell@2
+              displayName: 'Delete firewall-rule for Azure agent IP Address'
+              inputs:
+                targetType: 'inline'
+                script: |
+                  az sql server firewall-rule delete `
+                  --name "$(agentIP) for Azure DevOps CD pipeline" `
+                  --resource-group $(db_psh_sql_server_resource_group) `
+                  --server $(db_psh_data_database_server_name)
+              condition: always()

@@ -1,0 +1,148 @@
+pipeline {
+    // agent to specify the entire pipeline will execute in the Jenkins environment
+    agent {
+        node {
+            label 'master'
+        }
+    }
+
+    /**
+     * tools to
+     * install jdk, maven and gradl and put on the PATH
+     */
+    tools {
+        jdk 'JDK 17'
+        maven 'maven 3'
+        gradle 'Gradle 2.1'
+    }
+
+    /**
+     * options to
+     * disableconcurrentbuilds
+     * maximum numbr of builds to keep
+     * abort build after 60 minutes
+     */
+    options {
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        timeout(60)
+    }
+
+    parameters {
+        gitParameter name: 'GIT_BRANCH',
+                     description: '',
+                     type: 'PT_BRANCH',
+                     defaultValue: 'main',
+                     branch: '',
+                     branchFilter: '*',
+                     listSize: '1',
+                     tagFilter: '',
+                     sortMode: 'ASCENDING_SMART',
+                     useRepository: 'test@vs-ssh.visualstudio.com:v3/test1/HybridFrameworkVMTest',
+                     quickFilterEnabled: true,
+                     selectedValue: 'DEFAULT'
+
+        choice name: 'CUCUMBER_OPTIONS',
+               description: '',
+               choices: [
+                   '@tag1',
+                   '@tag2',
+                   ]
+
+         choice name: 'ENV',
+                       description: '',
+                       choices: [
+                           'dev'
+                           ]
+
+       /**
+         * environment to
+         * inject project level environment variables to the pipeline build process
+         */
+        environment {
+            PROJECT_NAME="HybridFrameworkVMTest"
+            TMP_POM="/tmp/.${BUILD_TAG}-pom-info.properties"
+            BUILD_PROPERTIES="${WORKSPACE}/.my_build.properties"
+            MAVEN_OPS="${MAVEN_OPTS}"
+       }
+
+       // stages to contains one or more stage directives
+         stages {
+             /**
+              * Pre Test to
+              * delete workspace before build starts
+              * checkout source code,
+              * execute maven test
+              */
+             stage('Pre Test') {
+                 steps {
+                     deleteDir()
+                     checkout([
+                         $class: 'GitSCM',
+                         branches: [[name: "${params.GIT_BRANCH}"]],
+                         doGenerateSubmoduleConfigurations: false,
+                         extensions: [[$class: 'WipeWorkspace']],
+                         submoduleCfg: [],
+                         userRemoteConfigs: [[
+                             credentialsId: "${SSH_TO_GIT}",
+                             url: "${GIT_SSH_BASE_URL}/${PROJECT_NAME}"]]
+                     ])
+                     sh '''
+                         echo "JAVA_HOME=${JAVA_HOME}"
+                         ${JAVA_HOME}/bin/java -version
+                         echo "MAVEN_HOME=${MAVEN_HOME}"
+                         ${MAVEN_HOME}/bin/mvn -version
+                         echo "CUCUMBER_OPTIONS="${CUCUMBER_OPTIONS}
+                     '''
+                     sh '''
+                         ~/test_get_build_info turboreceiver
+                     '''
+                     load "${BUILD_PROPERTIES}"
+                 }
+             }
+
+             stage('Check branch') {
+                 when {
+                     expression { "${params.GIT_BRANCH}" == 'origin/master' }
+                 }
+                 steps {
+                     sh '''
+                         echo 'PRESENDSCRIPT_CANCEL="false"' > ${BUILD_PROPERTIES}
+                     '''
+                     load "${BUILD_PROPERTIES}"
+                 }
+             }
+
+             /**
+              * Integration Test to
+              * setup proper Jenkins Display Name
+              * execute maven cucumber tests
+              */
+             stage('First Tests') {
+                 environment {
+                     BUILD_NUMBER="${REAL_BUILD_ID}"
+                     CUCUMBER_OPTIONS="${CUCUMBER_OPTIONS}"
+                 }
+                 steps {
+                     script {
+                         currentBuild.displayName = "#${BUILD_NUMBER} (${CUCUMBER_OPTIONS} ${ENV})"
+                     }
+                     configFileProvider([configFile(fileId: 'testprj-maven-settings', variable: 'MAVEN_SETTINGS_XML')]) {
+                         sh '''
+                             kubectl config current-context
+                             mvn -s ${MAVEN_SETTINGS_XML} clean test -Dcucumber.options="${CUCUMBER_OPTIONS}" -Denv=${ENV}
+                         '''
+                     }
+                 }
+             }
+
+             /**
+              * Report to
+              * publish cucumber reports
+              */
+             stage('Cucumber Reports') {
+                 steps {
+                     cucumber failedFeaturesNumber: -1, failedScenariosNumber: -1, failedStepsNumber: -1, fileIncludePattern: '**/*.json', pendingStepsNumber: -1, skippedStepsNumber: -1, sortingMethod: 'ALPHABETICAL', undefinedStepsNumber: -1
+                 }
+             }
+         }
